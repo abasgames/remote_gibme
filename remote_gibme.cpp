@@ -1,97 +1,61 @@
 #include "remote_gibme.h"
+#include <hl_sdk/common/protocol.h>
 
-#include <string>
-
-#include <interface.h>
-#include <dbg.h>
-#include <convar.h>
 #include <messagebuffer.h>
 
-using namespace std;
-
-CRemoteGibme g_RemoteGibme;
-EXPOSE_SINGLE_INTERFACE_GLOBALVAR(CRemoteGibme, IClientPlugin, CLIENT_PLUGIN_INTERFACE_VERSION, g_RemoteGibme);
-
-CMessageBuffer SayTextBuffer;
-
-UserMsgHookFn ORIG_UserMsgHook_SayText = NULL;
-DetourHandle_t hUserMsgHook_SayText = 0;
-
-int UserMsgHook_SayText(const char* pszName, int iSize, void* pBuffer)
+CMessageBuffer CvarValueBuffer;
+ 
+sizebuf_t *clc_buffer; // picked at plugin initialization
+ 
+DECLARE_FUNC(void, __cdecl, HOOKED_CL_Send_CvarValue2) 
 {
-	SayTextBuffer.Init(pBuffer, iSize, true);
-
-	int playerIndex = SayTextBuffer.ReadByte();
-	string playerMessage(SayTextBuffer.ReadString());
-	
-	// Chat messages start with 0x2 (STX Start of Text)
-	if (playerMessage.length() > 0 && playerMessage.at(0) == 2) {
-		player_info_s* playerInfo = g_pEngineStudio->PlayerInfo(playerIndex - 1);
-		size_t playerNameLength = strlen(playerInfo->name);
-		string message = playerMessage.substr(playerNameLength + 3, playerMessage.length() - playerNameLength - 4); // Parse message by slicing with player name length. Also removing \n at the end of message
-
-		if (message.compare("!remotegib") == 0 || message.compare("|remotegib") == 0) {
-			g_pEngineFuncs->ClientCmd("gibme\n");
-		}
-	}
-
-	return ORIG_UserMsgHook_SayText(pszName, iSize, pBuffer);
-}
-
-api_version_s CRemoteGibme::GetAPIVersion()
-{
-	return SVENMOD_API_VER;
-}
-
-bool CRemoteGibme::Load(CreateInterfaceFn pfnSvenModFactory, ISvenModAPI* pSvenModAPI, IPluginHelpers* pPluginHelpers)
-{
-	BindApiToGlobals(pSvenModAPI);
-
-	hUserMsgHook_SayText = g_pHooks->HookUserMessage("SayText", UserMsgHook_SayText, &ORIG_UserMsgHook_SayText);
-
-	return true;
-}
-
-void CRemoteGibme::PostLoad(bool bGlobalLoad)
-{
-}
-
-void CRemoteGibme::Unload(void)
-{
-	g_pHooks->UnhookUserMessage(hUserMsgHook_SayText);
-}
-
-bool CRemoteGibme::Pause(void)
-{
-	return true;
-}
-
-void CRemoteGibme::Unpause(void)
-{
-}
-
-void CRemoteGibme::GameFrame(client_state_t state, double frametime, bool bPostRunCmd)
-{
-}
-
-PLUGIN_RESULT CRemoteGibme::Draw(void)
-{
-	return PLUGIN_CONTINUE;
-}
-
-PLUGIN_RESULT CRemoteGibme::DrawHUD(float time, int intermission)
-{
-	return PLUGIN_CONTINUE;
-}
-
-const char* CRemoteGibme::GetName(void)
-{
-	return "Remote Gibme";
+    // Init
+    CNetMessageParams *params = Utils()->GetNetMessageParams();
+    CvarValueBuffer.Init( params->buffer, params->readcount, params->badread );
+ 
+    // Main body
+    CMessageBuffer ClientToServerBuffer;
+    ClientToServerBuffer.Init( clc_buffer );
+ 
+    int iRequestID = CvarValueBuffer.ReadLong();
+    const char *pszCvarName = CvarValueBuffer.ReadString();
+ 
+    if ( strlen(pszCvarName) >= 0xFF ) // too long cvar name
+    {
+        // Client-to-server message type
+        ClientToServerBuffer.WriteByte( CLC_REQUESTCVARVALUE2 );
+        ClientToServerBuffer.WriteLong( iRequestID );
+        ClientToServerBuffer.WriteString( pszCvarName );
+ 
+        ClientToServerBuffer.WriteString( "Bad CVAR request" );
+    }
+    else
+    {
+        cvar_t *pCvar = CVar()->FindCvar( pszCvarName );
+ 
+        ClientToServerBuffer.WriteByte( CLC_REQUESTCVARVALUE2 );
+        ClientToServerBuffer.WriteLong( iRequestID );
+        ClientToServerBuffer.WriteString( pszCvarName );
+ 
+        if ( pCvar != NULL )
+        {
+            ClientToServerBuffer.WriteString( pCvar->string ); // write cvar's value
+        }
+        else // no such cvar
+        {
+            ClientToServerBuffer.WriteString( "Bad CVAR request" );
+        }
+    }
+ 
+    // Apply reading to the network messages buffer
+    Utils()->ApplyNetMessageReading( CvarValueBuffer ); // not implemented in current version of svenmod yet
+ 
+    ORIG_CL_Send_CvarValue2();
 }
 
 const char* CRemoteGibme::GetAuthor(void)
 {
-	return "Steve (Noxturnix)";
+	return "not really";
 }
 
 const char* CRemoteGibme::GetVersion(void)
@@ -101,12 +65,12 @@ const char* CRemoteGibme::GetVersion(void)
 
 const char* CRemoteGibme::GetDescription(void)
 {
-	return "You gib when someone sends !remotegib or |remotegib in chat";
+	return "lol";
 }
 
 const char* CRemoteGibme::GetURL(void)
 {
-	return "https://github.com/Noxturnix/remote_gibme";
+	return "https://github.com/abasgames/remote_gibme";
 }
 
 const char* CRemoteGibme::GetDate(void)
