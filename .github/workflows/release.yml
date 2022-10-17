@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v2
         with:
           submodules: recursive
-      - name: Add msbuild to PATH
+      - name: Add msbuild to PATH ofcourse
         uses: microsoft/setup-msbuild@v1.1
       - name: Build app for release
         run: msbuild remote_gibme.sln -t:Rebuild -p:Configuration=Release -p:Platform=x86
